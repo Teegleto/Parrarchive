@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Parrarchive</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎶</text></svg>" />
+</head>
+<body>
+
+  <!-- 1. Password gate: present in the HTML so it covers everything before JS runs -->
+  <div id="gate" class="gate">
+    <form id="gate-form" class="gate-card" autocomplete="off">
+      <h1 class="gate-title">Parrarchive</h1>
+      <p class="gate-sub">Enter the password to continue.</p>
+      <input
+        id="gate-input"
+        class="gate-input"
+        type="password"
+        placeholder="Password"
+        aria-label="Password"
+        autofocus
+      />
+      <button type="submit" class="btn btn-primary">Unlock</button>
+      <p id="gate-error" class="gate-error" role="alert" hidden>Incorrect password — try again.</p>
+    </form>
+  </div>
+
+  <!-- 2 + 3. Main app, hidden until unlocked -->
+  <main id="app" class="app" hidden>
+    <header class="topbar">
+      <span class="brand">Parrarchive</span>
+      <nav class="modes">
+        <button id="mode-vinyl" class="mode-btn" data-mode="vinyl">🎵 Vinyl</button>
+        <button id="mode-books" class="mode-btn" data-mode="books">📚 Books</button>
+      </nav>
+    </header>
+
+    <section class="content">
+      <h2 id="collection-title" class="collection-title">Your Collection</h2>
+
+      <form id="add-form" class="add-form" autocomplete="off">
+        <input
+          id="add-input"
+          class="add-input"
+          type="text"
+          placeholder="Type a vinyl title…"
+          aria-label="Title to add"
+        />
+        <button type="submit" class="btn btn-primary" id="add-btn">Add</button>
+      </form>
+
+      <p id="status" class="status" role="status" hidden></p>
+
+      <div id="grid" class="grid"></div>
+      <p id="empty" class="empty">Nothing here yet — add your first item above.</p>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
