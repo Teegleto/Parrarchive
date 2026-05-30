@@ -27,10 +27,30 @@
     </form>
   </div>
 
-  <!-- 2 + 3. Main app, hidden until unlocked -->
+  <!-- 2. Chooser page — shown right after unlocking -->
+  <div id="chooser" class="chooser" hidden>
+    <div class="chooser-inner">
+      <h1 class="chooser-title">Parrarchive</h1>
+      <p class="chooser-sub">What are you cataloguing?</p>
+      <div class="chooser-options">
+        <button class="choice-card" data-mode="vinyl">
+          <span class="choice-emoji">🎵</span>
+          <span class="choice-label">Vinyl</span>
+          <span class="choice-desc">Your record collection</span>
+        </button>
+        <button class="choice-card" data-mode="books">
+          <span class="choice-emoji">📚</span>
+          <span class="choice-label">Books</span>
+          <span class="choice-desc">Your bookshelf</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Collection view, shown after a mode is chosen -->
   <main id="app" class="app" hidden>
     <header class="topbar">
-      <span class="brand">Parrarchive</span>
+      <button id="home-btn" class="brand brand-btn" title="Back to chooser">Parrarchive</button>
       <nav class="modes">
         <button id="mode-vinyl" class="mode-btn" data-mode="vinyl">🎵 Vinyl</button>
         <button id="mode-books" class="mode-btn" data-mode="books">📚 Books</button>

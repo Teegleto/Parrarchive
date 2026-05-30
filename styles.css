@@ -102,6 +102,65 @@ body {
 
 .gate-error { margin: 0.25rem 0 0; color: var(--danger); font-size: 0.9rem; }
 
+/* ---------- Chooser page ---------- */
+.chooser {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: radial-gradient(900px 500px at 50% 0%, #2c2550 0%, #100f17 70%);
+}
+
+.chooser-inner {
+  width: min(720px, 100%);
+  text-align: center;
+}
+
+.chooser-title {
+  margin: 0;
+  font-size: 2.25rem;
+  letter-spacing: 0.5px;
+  background: linear-gradient(90deg, #c9a4ff, #8b5cf6);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.chooser-sub { margin: 0.4rem 0 2rem; color: var(--muted); font-size: 1.1rem; }
+
+.chooser-options {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.25rem;
+}
+@media (max-width: 480px) {
+  .chooser-options { grid-template-columns: 1fr; }
+}
+
+.choice-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 2.5rem 1.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.choice-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+.choice-emoji { font-size: 3rem; line-height: 1; }
+.choice-label { font-size: 1.5rem; font-weight: 700; }
+.choice-desc { color: var(--muted); font-size: 0.95rem; }
+
 /* ---------- App layout ---------- */
 .topbar {
   display: flex;
@@ -125,6 +184,15 @@ body {
   background-clip: text;
   color: transparent;
 }
+
+.brand-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+.brand-btn:hover { filter: brightness(1.15); }
 
 .modes { display: flex; gap: 0.5rem; }
 

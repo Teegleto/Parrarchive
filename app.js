@@ -175,6 +175,9 @@
     const gateForm = document.getElementById("gate-form");
     const gateInput = document.getElementById("gate-input");
     const gateError = document.getElementById("gate-error");
+    const chooser = document.getElementById("chooser");
+    const choiceCards = document.querySelectorAll(".choice-card");
+    const homeBtn = document.getElementById("home-btn");
     const app = document.getElementById("app");
 
     const modeButtons = document.querySelectorAll(".mode-btn");
@@ -188,11 +191,22 @@
 
     let currentMode = "vinyl";
 
+    // --- Navigation between the chooser page and a collection view ---
+    function showChooser() {
+      gate.hidden = true;
+      app.hidden = true;
+      chooser.hidden = false;
+    }
+    function openMode(mode) {
+      chooser.hidden = true;
+      app.hidden = false;
+      setMode(mode);
+    }
+
     // --- Password gate ---
     function unlock() {
       gate.hidden = true;
-      app.hidden = false;
-      setMode("vinyl");
+      showChooser();
     }
     if (sessionStorage.getItem(SESSION_KEY) === "1") {
       unlock();
@@ -257,6 +271,16 @@
         setMode(b.dataset.mode);
       });
     });
+
+    // Chooser page → open the selected collection
+    choiceCards.forEach(function (c) {
+      c.addEventListener("click", function () {
+        openMode(c.dataset.mode);
+      });
+    });
+
+    // Brand button → back to the chooser page
+    homeBtn.addEventListener("click", showChooser);
 
     // --- Add an item ---
     addForm.addEventListener("submit", function (e) {
