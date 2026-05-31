@@ -12,8 +12,11 @@ HTML/CSS/JavaScript.
 2. **Pick a mode** — choose **🎵 Vinyl** or **📚 Books**.
 3. **Add items** — type a title and press *Add*. Parrarchive looks the item up
    automatically and adds a card showing its details:
-   - **Vinyl** → cover art, artist, year, genre, track count
-     (via the free [iTunes Search API](https://developer.apple.com/library/archive/documentation/AudioVideo/Conceptual/iTuneSearchAPI/), called with JSONP).
+   - **Vinyl** → cover art, artist, year, type and genre
+     (via the free, no-key [MusicBrainz API](https://musicbrainz.org/doc/MusicBrainz_API),
+     with cover images from the [Cover Art Archive](https://coverartarchive.org/)).
+     MusicBrainz is used instead of a store catalogue because it covers
+     decades of releases, including older and out-of-print records.
    - **Books** → cover, author, first published year, page count, publisher,
      subjects (via the free [Open Library Search API](https://openlibrary.org/dev/docs/api/search)).
 4. Your collection is saved in the browser's `localStorage`, so it survives
@@ -28,7 +31,7 @@ python3 -m http.server
 # then visit http://localhost:8000
 ```
 
-The lookups require internet access to reach the iTunes and Open Library APIs.
+The lookups require internet access to reach the MusicBrainz and Open Library APIs.
 
 ## Deploying on GitHub Pages
 

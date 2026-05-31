@@ -15,7 +15,7 @@
   const MODES = {
     vinyl: {
       title: "Your Collection",
-      placeholder: "Type a vinyl title… (e.g. Daft Punk Discovery)",
+      placeholder: "Type a record or album… (e.g. Fleetwood Mac Rumours)",
       search: searchVinyl,
     },
     books: {
@@ -41,19 +41,36 @@
   // Each search returns a Promise of an array of normalised items (newest/best
   // first). The "Add" button uses the top match; the type-ahead lists them all.
 
-  /* Map one iTunes album result to our normalised item shape. */
-  function mapVinyl(r) {
+  /* Map one MusicBrainz release-group to our normalised item shape. */
+  function mapVinyl(rg) {
+    const credit = rg["artist-credit"] || [];
+    const artist =
+      credit
+        .map(function (c) { return c.name + (c.joinphrase || ""); })
+        .join("") || "Unknown artist";
+    const type = [rg["primary-type"]]
+      .concat(rg["secondary-types"] || [])
+      .filter(Boolean)
+      .join(" · ");
+    const genres = (rg.tags || [])
+      .slice()
+      .sort(function (a, b) { return (b.count || 0) - (a.count || 0); })
+      .slice(0, 2)
+      .map(function (t) { return t.name; })
+      .join(", ");
     return {
-      id: "v" + r.collectionId,
-      title: r.collectionName,
-      subtitle: r.artistName,
-      cover: r.artworkUrl100 ? r.artworkUrl100.replace("100x100", "400x400") : "",
+      id: "v" + rg.id,
+      title: rg.title,
+      subtitle: artist,
+      // Cover Art Archive returns the release-group's front cover (404s when
+      // none exists — renderCard/suggestions fall back to a placeholder).
+      cover: "https://coverartarchive.org/release-group/" + rg.id + "/front-250",
       coverClass: "",
-      link: r.collectionViewUrl || "",
+      link: "https://musicbrainz.org/release-group/" + rg.id,
       meta: [
-        ["Year", r.releaseDate ? r.releaseDate.slice(0, 4) : ""],
-        ["Genre", r.primaryGenreName || ""],
-        ["Tracks", r.trackCount != null ? String(r.trackCount) : ""],
+        ["Year", (rg["first-release-date"] || "").slice(0, 4)],
+        ["Type", type],
+        ["Genre", genres],
       ],
     };
   }
@@ -78,42 +95,23 @@
     };
   }
 
-  /* iTunes Search API does not reliably send CORS headers, so we use JSONP:
-     it supports a `callback` parameter and returns `callback({...})`. */
+  /* MusicBrainz sends Access-Control-Allow-Origin: *, so a plain fetch works.
+     The release-group search covers decades of releases, including older and
+     out-of-print records that the iTunes store does not carry. */
   function searchVinyl(query, limit) {
-    return new Promise(function (resolve, reject) {
-      const cb = "itunesCb_" + Date.now() + Math.floor(Math.random() * 1e6);
-      const script = document.createElement("script");
-      const timer = setTimeout(function () {
-        cleanup();
-        reject(new Error("Lookup timed out."));
-      }, 10000);
-
-      function cleanup() {
-        clearTimeout(timer);
-        delete window[cb];
-        if (script.parentNode) script.parentNode.removeChild(script);
-      }
-
-      window[cb] = function (data) {
-        cleanup();
-        const results = (data && data.results) || [];
-        resolve(results.map(mapVinyl));
-      };
-
-      script.onerror = function () {
-        cleanup();
-        reject(new Error("Network error."));
-      };
-      script.src =
-        "https://itunes.apple.com/search?term=" +
-        encodeURIComponent(query) +
-        "&entity=album&limit=" +
-        (limit || 1) +
-        "&callback=" +
-        cb;
-      document.body.appendChild(script);
-    });
+    const url =
+      "https://musicbrainz.org/ws/2/release-group/?fmt=json&limit=" +
+      (limit || 1) +
+      "&query=" +
+      encodeURIComponent(query);
+    return fetch(url, { headers: { Accept: "application/json" } })
+      .then(function (res) {
+        if (!res.ok) throw new Error("Network error.");
+        return res.json();
+      })
+      .then(function (data) {
+        return ((data && data["release-groups"]) || []).map(mapVinyl);
+      });
   }
 
   /* Open Library sends Access-Control-Allow-Origin: *, so a plain fetch works. */
@@ -150,14 +148,19 @@
     remove.addEventListener("click", onRemove);
     card.appendChild(remove);
 
+    const coverClass = "card-cover" + (item.coverClass ? " " + item.coverClass : "");
     if (item.cover) {
-      const img = el("img", "card-cover" + (item.coverClass ? " " + item.coverClass : ""));
+      const img = el("img", coverClass);
       img.src = item.cover;
       img.alt = item.title;
       img.loading = "lazy";
+      // Swap to a plain placeholder if the cover doesn't exist (e.g. CAA 404).
+      img.addEventListener("error", function () {
+        img.replaceWith(el("div", coverClass));
+      });
       card.appendChild(img);
     } else {
-      card.appendChild(el("div", "card-cover" + (item.coverClass ? " " + item.coverClass : "")));
+      card.appendChild(el("div", coverClass));
     }
 
     const body = el("div", "card-body");
@@ -370,6 +373,9 @@
           img.src = item.cover;
           img.alt = "";
           img.loading = "lazy";
+          img.addEventListener("error", function () {
+            img.replaceWith(el("span", "suggestion-thumb"));
+          });
           li.appendChild(img);
         } else {
           li.appendChild(el("span", "suggestion-thumb"));
@@ -419,7 +425,7 @@
 
     addInput.addEventListener("input", function () {
       clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(fetchSuggestions, 280);
+      debounceTimer = setTimeout(fetchSuggestions, 400);
     });
 
     addInput.addEventListener("keydown", function (e) {
