@@ -28,6 +28,37 @@ HTML/CSS/JavaScript.
      most popular match of a name appears at the top.
 4. Your collection is saved in the browser's `localStorage`, so it survives
    refreshes. Hover a card and click **✕** to remove an item.
+5. **Sync across devices (optional)** — click **☁ Sync** and connect a free
+   Firebase Realtime Database (see below) to keep the same collection on every
+   device.
+
+## Sync across devices
+
+The site is static, so cross-device sync uses a free
+[Firebase Realtime Database](https://firebase.google.com/docs/database) over its
+REST API — no SDK, no backend, no API key in the page.
+
+1. Create a free project at **console.firebase.google.com** and add a
+   **Realtime Database**.
+2. In the database **Rules** tab, allow public read/write, then **Publish**:
+
+   ```json
+   { "rules": { ".read": true, ".write": true } }
+   ```
+3. Copy the database URL from the **Data** tab
+   (`https://<project>-default-rtdb.firebaseio.com/`).
+4. In Parrarchive, click **☁ Sync**, paste the URL (optionally with a path such
+   as `…firebaseio.com/parrarchive`), and **Connect**. Do the same on each
+   device with the same URL.
+
+How it works: local storage drives the UI; every add/remove is `PUT` to the
+database, and the app pulls the latest on load and whenever the tab regains
+focus. The first time a device connects, its local items are merged with
+whatever is already in the database so nothing is lost.
+
+> **Note:** with public rules, anyone who knows the URL can read and edit the
+> data. Keep the URL private and don't store anything sensitive. Tighten the
+> rules later if you set up Firebase Authentication.
 
 ## Running locally
 
@@ -58,8 +89,8 @@ The included empty `.nojekyll` file tells Pages to serve the files as-is.
 
 - **Security:** the password check runs in the browser, so it is a casual gate,
   not real authentication. Don't use it to protect anything sensitive.
-- **Storage:** collections are stored per-browser in `localStorage`. They are
-  not shared across devices. Cross-device sync (export/import a JSON file, or
-  committing data back to the repo) is intentionally left for a future update;
-  the storage logic is isolated in small `load`/`save` helpers in `app.js` to
-  make that easy to add.
+- **Storage:** collections live in the browser's `localStorage` and work fully
+  offline. Connecting a Firebase Realtime Database (see *Sync across devices*)
+  shares them across devices. Sync is last-write-wins per change rather than a
+  true merge, so simultaneous edits on two offline devices can overwrite each
+  other — fine for personal use.

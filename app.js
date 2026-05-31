@@ -9,6 +9,7 @@
   const STORE_KEYS = { vinyl: "parrarchive:vinyl", books: "parrarchive:books" };
 
   const VIEW_KEY = "parrarchive:view";
+  const SYNC_KEY = "parrarchive:sync";
   const SUGGEST_LIMIT = 7;
 
   /* Per-mode configuration keeps vinyl and books behaviour declarative.
@@ -315,7 +316,7 @@
     const homeBtn = document.getElementById("home-btn");
     const app = document.getElementById("app");
 
-    const modeButtons = document.querySelectorAll(".mode-btn");
+    const modeButtons = document.querySelectorAll(".mode-btn[data-mode]");
     const titleEl = document.getElementById("collection-title");
     const addForm = document.getElementById("add-form");
     const addInput = document.getElementById("add-input");
@@ -326,6 +327,16 @@
     const statusEl = document.getElementById("status");
     const grid = document.getElementById("grid");
     const emptyEl = document.getElementById("empty");
+
+    // Sync (cross-device) elements
+    const syncBtn = document.getElementById("sync-btn");
+    const syncModal = document.getElementById("sync-modal");
+    const syncUrlInput = document.getElementById("sync-url");
+    const syncStatusEl = document.getElementById("sync-status");
+    const syncSaveBtn = document.getElementById("sync-save");
+    const syncNowBtn = document.getElementById("sync-now");
+    const syncDisconnectBtn = document.getElementById("sync-disconnect");
+    const syncCloseBtn = document.getElementById("sync-close");
 
     let currentMode = "vinyl";
     let currentField = "album"; // which "search by" field is active
@@ -395,7 +406,7 @@
           renderCard(item, function () {
             const list = load(currentMode);
             list.splice(index, 1);
-            save(currentMode, list);
+            commit(currentMode, list);
             renderCollection();
           })
         );
@@ -424,11 +435,170 @@
         const list = load(currentMode);
         if (list.some(function (x) { return x.id === stored.id; })) return;
         list.unshift(stored);
-        save(currentMode, list);
+        commit(currentMode, list);
         setStatus("Added “" + stored.title + "”.");
         renderCollection();
       });
     }
+
+    // --- Cross-device sync (Firebase Realtime Database via REST) ---
+    // Local storage stays the source of truth for the UI; every change is
+    // pushed to the shared database, and we pull it back on load and on focus.
+    let pushChain = Promise.resolve(); // serialises remote writes/reads
+
+    function getSyncCfg() {
+      try {
+        return JSON.parse(localStorage.getItem(SYNC_KEY));
+      } catch (_) {
+        return null;
+      }
+    }
+    function setSyncCfg(cfg) {
+      if (cfg) localStorage.setItem(SYNC_KEY, JSON.stringify(cfg));
+      else localStorage.removeItem(SYNC_KEY);
+    }
+    function remoteUrl(cfg) {
+      let u = (cfg.url || "").trim().replace(/\/+$/, "");
+      if (!/\.json($|\?)/.test(u)) u += ".json";
+      return u;
+    }
+
+    function pullRemote() {
+      const cfg = getSyncCfg();
+      if (!cfg) return Promise.resolve(null);
+      return fetch(remoteUrl(cfg), { cache: "no-store" }).then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      });
+    }
+    function pushRemote(doc) {
+      const cfg = getSyncCfg();
+      if (!cfg) return Promise.resolve();
+      return fetch(remoteUrl(cfg), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(doc),
+      }).then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      });
+    }
+
+    function currentDoc() {
+      return { vinyl: load("vinyl"), books: load("books"), updatedAt: Date.now() };
+    }
+    // Combine two lists, de-duplicating by id (preserves order, local first).
+    function unionById(a, b) {
+      const seen = {};
+      const out = [];
+      (a || []).concat(b || []).forEach(function (x) {
+        if (x && x.id && !seen[x.id]) {
+          seen[x.id] = true;
+          out.push(x);
+        }
+      });
+      return out;
+    }
+    // Replace local collections with a document and refresh the view.
+    function applyDoc(doc) {
+      save("vinyl", (doc && doc.vinyl) || []);
+      save("books", (doc && doc.books) || []);
+      if (!app.hidden) renderCollection();
+    }
+
+    // save() locally, then push the whole collection to the database.
+    function commit(mode, list) {
+      save(mode, list);
+      syncPush();
+    }
+    function syncPush() {
+      if (!getSyncCfg()) return;
+      setSyncStatus("Saving…");
+      pushChain = pushChain
+        .then(function () { return pushRemote(currentDoc()); })
+        .then(function () { setSyncStatus("Synced ✓", "ok"); })
+        .catch(function (e) { setSyncStatus("Sync error: " + e.message, "error"); });
+    }
+    // Pull the latest from the database (after any in-flight write completes).
+    function syncRefresh() {
+      if (!getSyncCfg()) return;
+      pushChain = pushChain
+        .then(function () { return pullRemote(); })
+        .then(function (remote) { if (remote) applyDoc(remote); })
+        .catch(function () {});
+    }
+    // First connection on a device: union local + remote so nothing is lost,
+    // then push the merged result back up.
+    function syncConnect() {
+      if (!getSyncCfg()) return;
+      setSyncStatus("Connecting…");
+      pushChain = pushChain
+        .then(function () { return pullRemote(); })
+        .then(function (remote) {
+          remote = remote || {};
+          const merged = {
+            vinyl: unionById(load("vinyl"), remote.vinyl),
+            books: unionById(load("books"), remote.books),
+            updatedAt: Date.now(),
+          };
+          applyDoc(merged);
+          return pushRemote(merged);
+        })
+        .then(function () { setSyncStatus("Synced ✓", "ok"); })
+        .catch(function (e) { setSyncStatus("Sync error: " + e.message, "error"); });
+    }
+
+    function setSyncStatus(msg, kind) {
+      syncStatusEl.textContent = msg || "";
+      syncStatusEl.className = "sync-status" + (kind ? " " + kind : "");
+    }
+    function updateSyncUI() {
+      const cfg = getSyncCfg();
+      const on = !!cfg;
+      syncBtn.classList.toggle("connected", on);
+      syncBtn.textContent = on ? "☁ Synced" : "☁ Sync";
+      syncUrlInput.value = cfg ? cfg.url : "";
+      syncSaveBtn.textContent = on ? "Update & sync" : "Connect & sync";
+      syncNowBtn.hidden = !on;
+      syncDisconnectBtn.hidden = !on;
+    }
+
+    function openSyncModal() {
+      updateSyncUI();
+      if (!getSyncCfg()) setSyncStatus("");
+      syncModal.hidden = false;
+      syncUrlInput.focus();
+    }
+    function closeSyncModal() { syncModal.hidden = true; }
+
+    syncBtn.addEventListener("click", openSyncModal);
+    syncCloseBtn.addEventListener("click", closeSyncModal);
+    syncModal.addEventListener("click", function (e) {
+      if (e.target === syncModal) closeSyncModal();
+    });
+    syncSaveBtn.addEventListener("click", function () {
+      const url = syncUrlInput.value.trim();
+      if (!/^https:\/\/.+/.test(url)) {
+        setSyncStatus("Enter a valid https:// database URL.", "error");
+        return;
+      }
+      setSyncCfg({ url: url });
+      updateSyncUI();
+      syncConnect();
+    });
+    syncNowBtn.addEventListener("click", function () {
+      setSyncStatus("Syncing…");
+      syncRefresh();
+      pushChain.then(function () { setSyncStatus("Synced ✓", "ok"); });
+    });
+    syncDisconnectBtn.addEventListener("click", function () {
+      setSyncCfg(null);
+      updateSyncUI();
+      setSyncStatus("Disconnected. Your collection stays on this device.");
+    });
+
+    // Pull fresh data when returning to the tab/window.
+    window.addEventListener("focus", syncRefresh);
 
     viewButtons.forEach(function (b) {
       b.addEventListener("click", function () {
@@ -639,5 +809,9 @@
           addInput.focus();
         });
     });
+
+    // --- Initialise sync on startup ---
+    updateSyncUI();
+    if (getSyncCfg()) syncConnect();
   });
 })();

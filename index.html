@@ -54,6 +54,7 @@
       <nav class="modes">
         <button id="mode-vinyl" class="mode-btn" data-mode="vinyl">🎵 Vinyl</button>
         <button id="mode-books" class="mode-btn" data-mode="books">📚 Books</button>
+        <button id="sync-btn" class="mode-btn sync-btn" title="Sync across devices">☁ Sync</button>
       </nav>
     </header>
 
@@ -91,6 +92,40 @@
       <p id="empty" class="empty">Nothing here yet — add your first item above.</p>
     </section>
   </main>
+
+  <!-- Cross-device sync settings -->
+  <div id="sync-modal" class="modal" hidden>
+    <div class="modal-card">
+      <h2 class="modal-title">Sync across devices</h2>
+      <p class="modal-intro">
+        Store your collection in a free Firebase Realtime Database so it appears
+        on every device. Paste the same Database URL on each device.
+      </p>
+      <ol class="modal-steps">
+        <li>Create a free project at <strong>console.firebase.google.com</strong> and add a <strong>Realtime Database</strong>.</li>
+        <li>In the database <strong>Rules</strong> tab, set both <code>.read</code> and <code>.write</code> to <code>true</code>, then Publish.</li>
+        <li>Copy the database URL shown at the top of the Data tab and paste it below.</li>
+      </ol>
+      <label class="modal-label" for="sync-url">Realtime Database URL</label>
+      <input
+        id="sync-url"
+        class="gate-input"
+        type="url"
+        placeholder="https://your-project-default-rtdb.firebaseio.com/parrarchive"
+      />
+      <p id="sync-status" class="sync-status" role="status"></p>
+      <div class="modal-actions">
+        <button id="sync-save" class="btn btn-primary">Connect &amp; sync</button>
+        <button id="sync-now" class="btn" hidden>Sync now</button>
+        <button id="sync-disconnect" class="btn" hidden>Disconnect</button>
+        <button id="sync-close" class="btn">Close</button>
+      </div>
+      <p class="modal-note">
+        Anyone with this URL can read and edit the data, so keep it private and
+        don't store anything sensitive. It is saved only in this browser.
+      </p>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>
