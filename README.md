@@ -16,13 +16,16 @@ HTML/CSS/JavaScript.
    - **Vinyl** can be searched by **Album**, **Artist**, or **Song** (song
      searches return the track plus the album it appears on).
    - **Books** can be searched by **Title** or **Author**.
-   - **Vinyl** → cover art, artist, year, type and genre
-     (via the free, no-key [MusicBrainz API](https://musicbrainz.org/doc/MusicBrainz_API),
-     with cover images from the [Cover Art Archive](https://coverartarchive.org/)).
-     MusicBrainz is used instead of a store catalogue because it covers
-     decades of releases, including older and out-of-print records.
+   - **Vinyl** → cover art, artist, year, type, genre and tracks
+     (via the free, no-key [Deezer API](https://developers.deezer.com/api),
+     called with JSONP). Deezer's search is fuzzy and popularity-ranked, so
+     mainstream records surface reliably and the best-known entry of a given
+     name comes first. Albums are enriched with year/genre/label on add.
    - **Books** → cover, author, first published year, page count, publisher,
      subjects (via the free [Open Library Search API](https://openlibrary.org/dev/docs/api/search)).
+   - Results are re-ranked client-side, blending name-match quality with a
+     popularity signal (Deezer's rank; Open Library edition counts) so the
+     most popular match of a name appears at the top.
 4. Your collection is saved in the browser's `localStorage`, so it survives
    refreshes. Hover a card and click **✕** to remove an item.
 
@@ -35,7 +38,7 @@ python3 -m http.server
 # then visit http://localhost:8000
 ```
 
-The lookups require internet access to reach the MusicBrainz and Open Library APIs.
+The lookups require internet access to reach the Deezer and Open Library APIs.
 
 ## Deploying on GitHub Pages
 

@@ -33,17 +33,11 @@
     },
   };
 
-  /* Escape Lucene query-syntax specials so user input can't break the query. */
-  function escapeLucene(s) {
-    return s.replace(/([+\-!(){}\[\]^"~*?:\\/]|&&|\|\|)/g, "\\$&");
-  }
-
-  /* Milliseconds → m:ss, for song durations. */
-  function formatDuration(ms) {
-    if (!ms) return "";
-    const total = Math.round(ms / 1000);
-    const m = Math.floor(total / 60);
-    const s = total % 60;
+  /* Seconds → m:ss, for song durations (Deezer reports seconds). */
+  function formatSeconds(sec) {
+    if (!sec) return "";
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
     return m + ":" + (s < 10 ? "0" : "") + s;
   }
 
@@ -59,68 +53,149 @@
     localStorage.setItem(STORE_KEYS[mode], JSON.stringify(items));
   }
 
+  // ---------- Result ranking ----------
+  // Blend name-match quality with a popularity signal so that the obvious,
+  // most-popular entry of a given name floats to the top. `popularity` is a
+  // raw count (Deezer track rank, Open Library edition count); `idx` preserves
+  // the API's own ordering as a gentle tie-breaker.
+  function rankResults(items, query) {
+    const q = query.trim().toLowerCase();
+    return items
+      .map(function (it, idx) {
+        return { it: it, score: scoreItem(it, q, idx) };
+      })
+      .sort(function (a, b) { return b.score - a.score; })
+      .map(function (x) { return x.it; });
+  }
+
+  function scoreItem(it, q, idx) {
+    const title = (it.title || "").toLowerCase();
+    let s = 0;
+    if (title === q) s += 1000;
+    else if (title.indexOf(q) === 0) s += 500;
+    else if (title.indexOf(q) !== -1) s += 200;
+    // Popularity, compressed so huge counts don't completely drown name matches.
+    s += Math.log10((it.popularity || 0) + 1) * 60;
+    // Keep the source API's ordering as a soft tie-breaker.
+    s -= idx;
+    return s;
+  }
+
   // ---------- Metadata lookups ----------
-  // Each search returns a Promise of an array of normalised items (newest/best
-  // first). The "Add" button uses the top match; the type-ahead lists them all.
+  // Each search returns a Promise of an array of normalised items, best first.
+  // The "Add" button uses the top match; the type-ahead lists them all.
+  const POOL = 25; // candidates fetched per query before ranking/slicing
 
-  /* Join a MusicBrainz artist-credit array into a display string. */
-  function creditName(credit) {
-    return (
-      (credit || [])
-        .map(function (c) { return c.name + (c.joinphrase || ""); })
-        .join("") || "Unknown artist"
-    );
+  /* JSONP loader — Deezer's API isn't CORS-enabled but supports
+     `output=jsonp&callback=`, so we inject a <script> and await the callback. */
+  function jsonp(url) {
+    return new Promise(function (resolve, reject) {
+      const cb = "dz_" + Date.now() + "_" + Math.floor(Math.random() * 1e6);
+      const sep = url.indexOf("?") === -1 ? "?" : "&";
+      const script = document.createElement("script");
+      const timer = setTimeout(function () {
+        cleanup();
+        reject(new Error("Lookup timed out."));
+      }, 10000);
+
+      function cleanup() {
+        clearTimeout(timer);
+        delete window[cb];
+        if (script.parentNode) script.parentNode.removeChild(script);
+      }
+
+      window[cb] = function (data) {
+        cleanup();
+        resolve(data);
+      };
+      script.onerror = function () {
+        cleanup();
+        reject(new Error("Network error."));
+      };
+      script.src = url + sep + "output=jsonp&callback=" + cb;
+      document.body.appendChild(script);
+    });
   }
 
-  /* Map one MusicBrainz release-group to our normalised item shape. */
-  function mapVinyl(rg) {
-    const artist = creditName(rg["artist-credit"]);
-    const type = [rg["primary-type"]]
-      .concat(rg["secondary-types"] || [])
-      .filter(Boolean)
-      .join(" · ");
-    const genres = (rg.tags || [])
-      .slice()
-      .sort(function (a, b) { return (b.count || 0) - (a.count || 0); })
-      .slice(0, 2)
-      .map(function (t) { return t.name; })
-      .join(", ");
+  const DEEZER = "https://api.deezer.com";
+
+  function deezer(path, query, limit) {
+    const url =
+      DEEZER + path + "?limit=" + limit + "&q=" + encodeURIComponent(query);
+    return jsonp(url).then(function (data) {
+      return (data && data.data) || [];
+    });
+  }
+
+  /* Map one Deezer album to our normalised item shape. Year/genre/label aren't
+     in the search payload, so they're filled in on add via enrichAlbum(). */
+  function mapDeezerAlbum(a) {
     return {
-      id: "v" + rg.id,
-      title: rg.title,
-      subtitle: artist,
-      // Cover Art Archive returns the release-group's front cover (404s when
-      // none exists — renderCard/suggestions fall back to a placeholder).
-      cover: "https://coverartarchive.org/release-group/" + rg.id + "/front-250",
+      id: "v" + a.id,
+      title: a.title,
+      subtitle: a.artist ? a.artist.name : "Unknown artist",
+      cover: a.cover_big || a.cover_medium || a.cover || "",
       coverClass: "",
-      link: "https://musicbrainz.org/release-group/" + rg.id,
+      link: a.link || "",
+      popularity: 0, // album search is already returned popularity-ordered
+      albumId: a.id, // transient: used to enrich on add, then dropped
       meta: [
-        ["Year", (rg["first-release-date"] || "").slice(0, 4)],
-        ["Type", type],
-        ["Genre", genres],
+        ["Type", a.record_type || ""],
+        ["Tracks", a.nb_tracks != null ? String(a.nb_tracks) : ""],
       ],
     };
   }
 
-  /* Map one MusicBrainz recording (a song) to our normalised item shape.
-     We surface the song, its artist, and the album/release it appears on. */
-  function mapRecording(rec) {
-    const release = (rec.releases || [])[0];
+  /* Map one Deezer track (a song) — surface the song, artist and its album. */
+  function mapDeezerTrack(t) {
+    const album = t.album || {};
     return {
-      id: "v" + rec.id,
-      title: rec.title,
-      subtitle: creditName(rec["artist-credit"]),
-      cover: release
-        ? "https://coverartarchive.org/release/" + release.id + "/front-250"
-        : "",
+      id: "vt" + t.id,
+      title: t.title,
+      subtitle: t.artist ? t.artist.name : "Unknown artist",
+      cover: album.cover_big || album.cover_medium || album.cover || "",
       coverClass: "",
-      link: "https://musicbrainz.org/recording/" + rec.id,
+      link: t.link || "",
+      popularity: t.rank || 0, // Deezer's own popularity score
       meta: [
-        ["Album", release ? release.title : ""],
-        ["Year", release && release.date ? release.date.slice(0, 4) : ""],
-        ["Length", formatDuration(rec.length)],
+        ["Album", album.title || ""],
+        ["Length", formatSeconds(t.duration)],
       ],
     };
+  }
+
+  /* Fetch full album details to enrich a card with year, genre and label.
+     Resilient: on any failure the item is returned with its basic meta. */
+  function enrichAlbum(item) {
+    return jsonp(DEEZER + "/album/" + item.albumId)
+      .then(function (a) {
+        if (!a || a.error) return item;
+        const meta = [];
+        if (a.release_date) meta.push(["Year", a.release_date.slice(0, 4)]);
+        if (a.genres && a.genres.data && a.genres.data[0])
+          meta.push(["Genre", a.genres.data[0].name]);
+        if (a.record_type) meta.push(["Type", a.record_type]);
+        if (a.nb_tracks != null) meta.push(["Tracks", String(a.nb_tracks)]);
+        if (a.label) meta.push(["Label", a.label]);
+        if (meta.length) item.meta = meta;
+        return item;
+      })
+      .catch(function () { return item; });
+  }
+
+  /* Deezer: fuzzy, popularity-ranked and deep-catalogue, so basic/popular
+     entries surface reliably. Album & artist hit album search (artist scopes
+     by `artist:"…"`); song hits track search. */
+  function searchVinyl(query, limit, field) {
+    if (field === "song") {
+      return deezer("/search/track", query, POOL).then(function (rows) {
+        return rankResults(rows.map(mapDeezerTrack), query).slice(0, limit);
+      });
+    }
+    const q = field === "artist" ? 'artist:"' + query + '"' : query;
+    return deezer("/search/album", q, POOL).then(function (rows) {
+      return rankResults(rows.map(mapDeezerAlbum), query).slice(0, limit);
+    });
   }
 
   /* Map one Open Library doc to our normalised item shape. */
@@ -134,6 +209,7 @@
         : "",
       coverClass: "book",
       link: d.key ? "https://openlibrary.org" + d.key : "",
+      popularity: d.edition_count || 0, // more editions ≈ more popular/canonical
       meta: [
         ["First published", d.first_publish_year ? String(d.first_publish_year) : ""],
         ["Pages", d.number_of_pages_median ? String(d.number_of_pages_median) : ""],
@@ -143,55 +219,16 @@
     };
   }
 
-  /* MusicBrainz sends Access-Control-Allow-Origin: *, so a plain fetch works.
-     It covers decades of releases — including older / out-of-print records the
-     iTunes store does not carry — and lets us query by album, artist or song.
-       - album / artist → release-group endpoint (an album is a release-group)
-       - song           → recording endpoint (a recording is a track) */
-  function searchVinyl(query, limit, field) {
-    const lim = limit || 1;
-    const term = escapeLucene(query);
-
-    if (field === "song") {
-      const url =
-        "https://musicbrainz.org/ws/2/recording/?fmt=json&limit=" +
-        lim +
-        "&query=recording:(" +
-        encodeURIComponent(term) +
-        ")";
-      return mbFetch(url).then(function (data) {
-        return ((data && data.recordings) || []).map(mapRecording);
-      });
-    }
-
-    const luceneField = field === "artist" ? "artist" : "releasegroup";
-    const url =
-      "https://musicbrainz.org/ws/2/release-group/?fmt=json&limit=" +
-      lim +
-      "&query=" +
-      luceneField +
-      ":(" +
-      encodeURIComponent(term) +
-      ")";
-    return mbFetch(url).then(function (data) {
-      return ((data && data["release-groups"]) || []).map(mapVinyl);
-    });
-  }
-
-  function mbFetch(url) {
-    return fetch(url, { headers: { Accept: "application/json" } }).then(function (res) {
-      if (!res.ok) throw new Error("Network error.");
-      return res.json();
-    });
-  }
-
   /* Open Library sends Access-Control-Allow-Origin: *, so a plain fetch works.
-     It supports field-scoped params (`title=`, `author=`). */
+     We pull a candidate pool with edition counts and rank by name + popularity
+     so the canonical edition of a title comes first. */
   function searchBook(query, limit, field) {
     const param = field === "author" ? "author" : "title";
     const url =
       "https://openlibrary.org/search.json?limit=" +
-      (limit || 1) +
+      POOL +
+      "&fields=key,title,author_name,first_publish_year,cover_i," +
+      "edition_count,number_of_pages_median,publisher,subject" +
       "&" +
       param +
       "=" +
@@ -202,7 +239,10 @@
         return res.json();
       })
       .then(function (data) {
-        return ((data && data.docs) || []).map(mapBook);
+        return rankResults(((data && data.docs) || []).map(mapBook), query).slice(
+          0,
+          limit
+        );
       });
   }
 
@@ -364,15 +404,30 @@
 
     // --- Add an item (shared by the Add button and the suggestions) ---
     function addItem(item) {
-      const list = load(currentMode);
-      if (list.some(function (x) { return x.id === item.id; })) {
+      if (load(currentMode).some(function (x) { return x.id === item.id; })) {
         setStatus('“' + item.title + '” is already in your collection.', true);
         return;
       }
-      list.unshift(item);
-      save(currentMode, list);
-      setStatus("Added “" + item.title + "”.");
-      renderCollection();
+      // Albums get a follow-up lookup for year/genre/label before saving.
+      const prepared = item.albumId ? enrichAlbum(item) : Promise.resolve(item);
+      setStatus("Adding “" + item.title + "”…");
+      prepared.then(function (full) {
+        const stored = {
+          id: full.id,
+          title: full.title,
+          subtitle: full.subtitle,
+          cover: full.cover,
+          coverClass: full.coverClass,
+          link: full.link,
+          meta: full.meta,
+        };
+        const list = load(currentMode);
+        if (list.some(function (x) { return x.id === stored.id; })) return;
+        list.unshift(stored);
+        save(currentMode, list);
+        setStatus("Added “" + stored.title + "”.");
+        renderCollection();
+      });
     }
 
     viewButtons.forEach(function (b) {
@@ -532,7 +587,7 @@
 
     addInput.addEventListener("input", function () {
       clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(fetchSuggestions, 400);
+      debounceTimer = setTimeout(fetchSuggestions, 250);
     });
 
     addInput.addEventListener("keydown", function (e) {
