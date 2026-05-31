@@ -262,9 +262,25 @@ body {
 .view-btn:hover { color: var(--accent); }
 .view-btn.active { background: var(--accent); color: #fff; }
 
-.add-form { display: flex; gap: 0.6rem; margin-bottom: 1rem; align-items: flex-start; }
-.add-input-wrap { position: relative; flex: 1; }
+.add-form { display: flex; gap: 0.6rem; margin-bottom: 1rem; align-items: flex-start; flex-wrap: wrap; }
+.add-input-wrap { position: relative; flex: 1; min-width: 220px; }
 .add-input-wrap .add-input { width: 100%; }
+
+.search-field {
+  padding: 0.7rem 0.85rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 1rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+.search-field:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
 
 /* Type-ahead dropdown */
 .suggestions {

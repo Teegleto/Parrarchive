@@ -10,8 +10,12 @@ HTML/CSS/JavaScript.
    `parrington`. Once entered correctly the rest of the app is revealed (the
    unlock is remembered for the browser tab via `sessionStorage`).
 2. **Pick a mode** — choose **🎵 Vinyl** or **📚 Books**.
-3. **Add items** — type a title and press *Add*. Parrarchive looks the item up
-   automatically and adds a card showing its details:
+3. **Add items** — pick what to **search by**, type, and press *Add* (or pick a
+   suggestion). Parrarchive looks the item up automatically and adds a card with
+   its details:
+   - **Vinyl** can be searched by **Album**, **Artist**, or **Song** (song
+     searches return the track plus the album it appears on).
+   - **Books** can be searched by **Title** or **Author**.
    - **Vinyl** → cover art, artist, year, type and genre
      (via the free, no-key [MusicBrainz API](https://musicbrainz.org/doc/MusicBrainz_API),
      with cover images from the [Cover Art Archive](https://coverartarchive.org/)).

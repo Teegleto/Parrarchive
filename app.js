@@ -11,19 +11,41 @@
   const VIEW_KEY = "parrarchive:view";
   const SUGGEST_LIMIT = 7;
 
-  /* Per-mode configuration keeps vinyl and books behaviour declarative. */
+  /* Per-mode configuration keeps vinyl and books behaviour declarative.
+     `fields` are the "search by" options shown in the dropdown. */
   const MODES = {
     vinyl: {
       title: "Your Collection",
-      placeholder: "Type a record or album… (e.g. Fleetwood Mac Rumours)",
       search: searchVinyl,
+      fields: [
+        { key: "album", label: "Album", placeholder: "Search by album… (e.g. Rumours)" },
+        { key: "artist", label: "Artist", placeholder: "Search by artist… (e.g. Fleetwood Mac)" },
+        { key: "song", label: "Song", placeholder: "Search by song… (e.g. Go Your Own Way)" },
+      ],
     },
     books: {
       title: "Your Bookshelf",
-      placeholder: "Type a book title… (e.g. The Hobbit)",
       search: searchBook,
+      fields: [
+        { key: "title", label: "Title", placeholder: "Search by title… (e.g. The Hobbit)" },
+        { key: "author", label: "Author", placeholder: "Search by author… (e.g. Tolkien)" },
+      ],
     },
   };
+
+  /* Escape Lucene query-syntax specials so user input can't break the query. */
+  function escapeLucene(s) {
+    return s.replace(/([+\-!(){}\[\]^"~*?:\\/]|&&|\|\|)/g, "\\$&");
+  }
+
+  /* Milliseconds → m:ss, for song durations. */
+  function formatDuration(ms) {
+    if (!ms) return "";
+    const total = Math.round(ms / 1000);
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return m + ":" + (s < 10 ? "0" : "") + s;
+  }
 
   // ---------- Storage helpers (kept small so richer sync can be added later) ----------
   function load(mode) {
@@ -41,13 +63,18 @@
   // Each search returns a Promise of an array of normalised items (newest/best
   // first). The "Add" button uses the top match; the type-ahead lists them all.
 
+  /* Join a MusicBrainz artist-credit array into a display string. */
+  function creditName(credit) {
+    return (
+      (credit || [])
+        .map(function (c) { return c.name + (c.joinphrase || ""); })
+        .join("") || "Unknown artist"
+    );
+  }
+
   /* Map one MusicBrainz release-group to our normalised item shape. */
   function mapVinyl(rg) {
-    const credit = rg["artist-credit"] || [];
-    const artist =
-      credit
-        .map(function (c) { return c.name + (c.joinphrase || ""); })
-        .join("") || "Unknown artist";
+    const artist = creditName(rg["artist-credit"]);
     const type = [rg["primary-type"]]
       .concat(rg["secondary-types"] || [])
       .filter(Boolean)
@@ -75,6 +102,27 @@
     };
   }
 
+  /* Map one MusicBrainz recording (a song) to our normalised item shape.
+     We surface the song, its artist, and the album/release it appears on. */
+  function mapRecording(rec) {
+    const release = (rec.releases || [])[0];
+    return {
+      id: "v" + rec.id,
+      title: rec.title,
+      subtitle: creditName(rec["artist-credit"]),
+      cover: release
+        ? "https://coverartarchive.org/release/" + release.id + "/front-250"
+        : "",
+      coverClass: "",
+      link: "https://musicbrainz.org/recording/" + rec.id,
+      meta: [
+        ["Album", release ? release.title : ""],
+        ["Year", release && release.date ? release.date.slice(0, 4) : ""],
+        ["Length", formatDuration(rec.length)],
+      ],
+    };
+  }
+
   /* Map one Open Library doc to our normalised item shape. */
   function mapBook(d) {
     return {
@@ -96,30 +144,57 @@
   }
 
   /* MusicBrainz sends Access-Control-Allow-Origin: *, so a plain fetch works.
-     The release-group search covers decades of releases, including older and
-     out-of-print records that the iTunes store does not carry. */
-  function searchVinyl(query, limit) {
+     It covers decades of releases — including older / out-of-print records the
+     iTunes store does not carry — and lets us query by album, artist or song.
+       - album / artist → release-group endpoint (an album is a release-group)
+       - song           → recording endpoint (a recording is a track) */
+  function searchVinyl(query, limit, field) {
+    const lim = limit || 1;
+    const term = escapeLucene(query);
+
+    if (field === "song") {
+      const url =
+        "https://musicbrainz.org/ws/2/recording/?fmt=json&limit=" +
+        lim +
+        "&query=recording:(" +
+        encodeURIComponent(term) +
+        ")";
+      return mbFetch(url).then(function (data) {
+        return ((data && data.recordings) || []).map(mapRecording);
+      });
+    }
+
+    const luceneField = field === "artist" ? "artist" : "releasegroup";
     const url =
       "https://musicbrainz.org/ws/2/release-group/?fmt=json&limit=" +
-      (limit || 1) +
+      lim +
       "&query=" +
-      encodeURIComponent(query);
-    return fetch(url, { headers: { Accept: "application/json" } })
-      .then(function (res) {
-        if (!res.ok) throw new Error("Network error.");
-        return res.json();
-      })
-      .then(function (data) {
-        return ((data && data["release-groups"]) || []).map(mapVinyl);
-      });
+      luceneField +
+      ":(" +
+      encodeURIComponent(term) +
+      ")";
+    return mbFetch(url).then(function (data) {
+      return ((data && data["release-groups"]) || []).map(mapVinyl);
+    });
   }
 
-  /* Open Library sends Access-Control-Allow-Origin: *, so a plain fetch works. */
-  function searchBook(query, limit) {
+  function mbFetch(url) {
+    return fetch(url, { headers: { Accept: "application/json" } }).then(function (res) {
+      if (!res.ok) throw new Error("Network error.");
+      return res.json();
+    });
+  }
+
+  /* Open Library sends Access-Control-Allow-Origin: *, so a plain fetch works.
+     It supports field-scoped params (`title=`, `author=`). */
+  function searchBook(query, limit, field) {
+    const param = field === "author" ? "author" : "title";
     const url =
       "https://openlibrary.org/search.json?limit=" +
       (limit || 1) +
-      "&q=" +
+      "&" +
+      param +
+      "=" +
       encodeURIComponent(query);
     return fetch(url)
       .then(function (res) {
@@ -205,6 +280,7 @@
     const addForm = document.getElementById("add-form");
     const addInput = document.getElementById("add-input");
     const addBtn = document.getElementById("add-btn");
+    const searchFieldEl = document.getElementById("search-field");
     const suggestionsEl = document.getElementById("suggestions");
     const viewButtons = document.querySelectorAll(".view-btn");
     const statusEl = document.getElementById("status");
@@ -212,6 +288,7 @@
     const emptyEl = document.getElementById("empty");
 
     let currentMode = "vinyl";
+    let currentField = "album"; // which "search by" field is active
     let currentView = localStorage.getItem(VIEW_KEY) === "list" ? "list" : "grid";
 
     // --- Navigation between the chooser page and a collection view ---
@@ -304,12 +381,42 @@
       });
     });
 
+    // --- "Search by" field selector ---
+    function applyField() {
+      const field = MODES[currentMode].fields.filter(function (f) {
+        return f.key === currentField;
+      })[0];
+      addInput.placeholder = field ? field.placeholder : "";
+    }
+
+    function populateFields(mode) {
+      const fields = MODES[mode].fields;
+      searchFieldEl.innerHTML = "";
+      fields.forEach(function (f) {
+        const opt = el("option", null, f.label);
+        opt.value = f.key;
+        searchFieldEl.appendChild(opt);
+      });
+      currentField = fields[0].key;
+      searchFieldEl.value = currentField;
+      applyField();
+    }
+
+    searchFieldEl.addEventListener("change", function () {
+      currentField = searchFieldEl.value;
+      applyField();
+      addInput.value = "";
+      hideSuggestions();
+      setStatus("");
+      addInput.focus();
+    });
+
     // --- Switch between vinyl / books ---
     function setMode(mode) {
       currentMode = mode;
       const cfg = MODES[mode];
       titleEl.textContent = cfg.title;
-      addInput.placeholder = cfg.placeholder;
+      populateFields(mode);
       addInput.value = "";
       setStatus("");
       hideSuggestions();
@@ -413,7 +520,7 @@
       }
       const token = ++requestToken;
       MODES[currentMode]
-        .search(query, SUGGEST_LIMIT)
+        .search(query, SUGGEST_LIMIT, currentField)
         .then(function (items) {
           if (token !== requestToken) return; // a newer keystroke superseded this
           renderSuggestions(items);
@@ -460,7 +567,7 @@
       setStatus("Searching…");
 
       MODES[currentMode]
-        .search(query, 1)
+        .search(query, 1, currentField)
         .then(function (items) {
           if (!items.length) {
             setStatus('No results found for "' + query + '".', true);
