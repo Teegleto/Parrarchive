@@ -8,17 +8,20 @@
   const SESSION_KEY = "parrarchive:unlocked";
   const STORE_KEYS = { vinyl: "parrarchive:vinyl", books: "parrarchive:books" };
 
+  const VIEW_KEY = "parrarchive:view";
+  const SUGGEST_LIMIT = 7;
+
   /* Per-mode configuration keeps vinyl and books behaviour declarative. */
   const MODES = {
     vinyl: {
       title: "Your Collection",
       placeholder: "Type a vinyl title… (e.g. Daft Punk Discovery)",
-      lookup: lookupVinyl,
+      search: searchVinyl,
     },
     books: {
       title: "Your Bookshelf",
       placeholder: "Type a book title… (e.g. The Hobbit)",
-      lookup: lookupBook,
+      search: searchBook,
     },
   };
 
@@ -35,10 +38,49 @@
   }
 
   // ---------- Metadata lookups ----------
+  // Each search returns a Promise of an array of normalised items (newest/best
+  // first). The "Add" button uses the top match; the type-ahead lists them all.
+
+  /* Map one iTunes album result to our normalised item shape. */
+  function mapVinyl(r) {
+    return {
+      id: "v" + r.collectionId,
+      title: r.collectionName,
+      subtitle: r.artistName,
+      cover: r.artworkUrl100 ? r.artworkUrl100.replace("100x100", "400x400") : "",
+      coverClass: "",
+      link: r.collectionViewUrl || "",
+      meta: [
+        ["Year", r.releaseDate ? r.releaseDate.slice(0, 4) : ""],
+        ["Genre", r.primaryGenreName || ""],
+        ["Tracks", r.trackCount != null ? String(r.trackCount) : ""],
+      ],
+    };
+  }
+
+  /* Map one Open Library doc to our normalised item shape. */
+  function mapBook(d) {
+    return {
+      id: "b" + (d.key || d.cover_edition_key || d.title),
+      title: d.title,
+      subtitle: d.author_name ? d.author_name.join(", ") : "Unknown author",
+      cover: d.cover_i
+        ? "https://covers.openlibrary.org/b/id/" + d.cover_i + "-M.jpg"
+        : "",
+      coverClass: "book",
+      link: d.key ? "https://openlibrary.org" + d.key : "",
+      meta: [
+        ["First published", d.first_publish_year ? String(d.first_publish_year) : ""],
+        ["Pages", d.number_of_pages_median ? String(d.number_of_pages_median) : ""],
+        ["Publisher", d.publisher ? d.publisher[0] : ""],
+        ["Subjects", d.subject ? d.subject.slice(0, 3).join(", ") : ""],
+      ],
+    };
+  }
 
   /* iTunes Search API does not reliably send CORS headers, so we use JSONP:
      it supports a `callback` parameter and returns `callback({...})`. */
-  function lookupVinyl(query) {
+  function searchVinyl(query, limit) {
     return new Promise(function (resolve, reject) {
       const cb = "itunesCb_" + Date.now() + Math.floor(Math.random() * 1e6);
       const script = document.createElement("script");
@@ -55,21 +97,8 @@
 
       window[cb] = function (data) {
         cleanup();
-        const r = data && data.results && data.results[0];
-        if (!r) return resolve(null);
-        resolve({
-          id: "v" + r.collectionId,
-          title: r.collectionName,
-          subtitle: r.artistName,
-          cover: r.artworkUrl100 ? r.artworkUrl100.replace("100x100", "400x400") : "",
-          coverClass: "",
-          link: r.collectionViewUrl || "",
-          meta: [
-            ["Year", r.releaseDate ? r.releaseDate.slice(0, 4) : ""],
-            ["Genre", r.primaryGenreName || ""],
-            ["Tracks", r.trackCount != null ? String(r.trackCount) : ""],
-          ],
-        });
+        const results = (data && data.results) || [];
+        resolve(results.map(mapVinyl));
       };
 
       script.onerror = function () {
@@ -79,40 +108,28 @@
       script.src =
         "https://itunes.apple.com/search?term=" +
         encodeURIComponent(query) +
-        "&entity=album&limit=1&callback=" +
+        "&entity=album&limit=" +
+        (limit || 1) +
+        "&callback=" +
         cb;
       document.body.appendChild(script);
     });
   }
 
   /* Open Library sends Access-Control-Allow-Origin: *, so a plain fetch works. */
-  function lookupBook(query) {
+  function searchBook(query, limit) {
     const url =
-      "https://openlibrary.org/search.json?limit=1&q=" + encodeURIComponent(query);
+      "https://openlibrary.org/search.json?limit=" +
+      (limit || 1) +
+      "&q=" +
+      encodeURIComponent(query);
     return fetch(url)
       .then(function (res) {
         if (!res.ok) throw new Error("Network error.");
         return res.json();
       })
       .then(function (data) {
-        const d = data && data.docs && data.docs[0];
-        if (!d) return null;
-        return {
-          id: "b" + (d.key || d.cover_edition_key || d.title),
-          title: d.title,
-          subtitle: d.author_name ? d.author_name.join(", ") : "Unknown author",
-          cover: d.cover_i
-            ? "https://covers.openlibrary.org/b/id/" + d.cover_i + "-M.jpg"
-            : "",
-          coverClass: "book",
-          link: d.key ? "https://openlibrary.org" + d.key : "",
-          meta: [
-            ["First published", d.first_publish_year ? String(d.first_publish_year) : ""],
-            ["Pages", d.number_of_pages_median ? String(d.number_of_pages_median) : ""],
-            ["Publisher", d.publisher ? d.publisher[0] : ""],
-            ["Subjects", d.subject ? d.subject.slice(0, 3).join(", ") : ""],
-          ],
-        };
+        return ((data && data.docs) || []).map(mapBook);
       });
   }
 
@@ -185,11 +202,14 @@
     const addForm = document.getElementById("add-form");
     const addInput = document.getElementById("add-input");
     const addBtn = document.getElementById("add-btn");
+    const suggestionsEl = document.getElementById("suggestions");
+    const viewButtons = document.querySelectorAll(".view-btn");
     const statusEl = document.getElementById("status");
     const grid = document.getElementById("grid");
     const emptyEl = document.getElementById("empty");
 
     let currentMode = "vinyl";
+    let currentView = localStorage.getItem(VIEW_KEY) === "list" ? "list" : "grid";
 
     // --- Navigation between the chooser page and a collection view ---
     function showChooser() {
@@ -235,6 +255,16 @@
       statusEl.classList.toggle("error", !!isError);
     }
 
+    // --- Grid / list view toggle ---
+    function setView(view) {
+      currentView = view === "list" ? "list" : "grid";
+      localStorage.setItem(VIEW_KEY, currentView);
+      grid.classList.toggle("list-view", currentView === "list");
+      viewButtons.forEach(function (b) {
+        b.classList.toggle("active", b.dataset.view === currentView);
+      });
+    }
+
     // --- Render the current mode's collection ---
     function renderCollection() {
       const items = load(currentMode);
@@ -252,6 +282,25 @@
       });
     }
 
+    // --- Add an item (shared by the Add button and the suggestions) ---
+    function addItem(item) {
+      const list = load(currentMode);
+      if (list.some(function (x) { return x.id === item.id; })) {
+        setStatus('“' + item.title + '” is already in your collection.', true);
+        return;
+      }
+      list.unshift(item);
+      save(currentMode, list);
+      setStatus("Added “" + item.title + "”.");
+      renderCollection();
+    }
+
+    viewButtons.forEach(function (b) {
+      b.addEventListener("click", function () {
+        setView(b.dataset.view);
+      });
+    });
+
     // --- Switch between vinyl / books ---
     function setMode(mode) {
       currentMode = mode;
@@ -260,9 +309,11 @@
       addInput.placeholder = cfg.placeholder;
       addInput.value = "";
       setStatus("");
+      hideSuggestions();
       modeButtons.forEach(function (b) {
         b.classList.toggle("active", b.dataset.mode === mode);
       });
+      setView(currentView);
       renderCollection();
     }
 
@@ -282,32 +333,135 @@
     // Brand button → back to the chooser page
     homeBtn.addEventListener("click", showChooser);
 
-    // --- Add an item ---
+    // --- Type-ahead suggestions ---
+    let suggestItems = [];   // items currently shown in the dropdown
+    let activeIndex = -1;    // keyboard-highlighted suggestion (-1 = none)
+    let debounceTimer = null;
+    let requestToken = 0;    // guards against out-of-order async responses
+
+    function hideSuggestions() {
+      suggestionsEl.hidden = true;
+      suggestionsEl.innerHTML = "";
+      suggestItems = [];
+      activeIndex = -1;
+      addInput.setAttribute("aria-expanded", "false");
+    }
+
+    function highlight(index) {
+      activeIndex = index;
+      Array.prototype.forEach.call(suggestionsEl.children, function (li, i) {
+        li.classList.toggle("active", i === index);
+      });
+    }
+
+    function renderSuggestions(items) {
+      suggestItems = items;
+      activeIndex = -1;
+      suggestionsEl.innerHTML = "";
+      if (!items.length) {
+        hideSuggestions();
+        return;
+      }
+      items.forEach(function (item, i) {
+        const li = el("li", "suggestion");
+        li.setAttribute("role", "option");
+        if (item.cover) {
+          const img = el("img", "suggestion-thumb");
+          img.src = item.cover;
+          img.alt = "";
+          img.loading = "lazy";
+          li.appendChild(img);
+        } else {
+          li.appendChild(el("span", "suggestion-thumb"));
+        }
+        const txt = el("div", "suggestion-text");
+        txt.appendChild(el("span", "suggestion-title", item.title));
+        if (item.subtitle) txt.appendChild(el("span", "suggestion-sub", item.subtitle));
+        li.appendChild(txt);
+        // mousedown (not click) fires before the input's blur, so the pick lands.
+        li.addEventListener("mousedown", function (ev) {
+          ev.preventDefault();
+          chooseSuggestion(i);
+        });
+        li.addEventListener("mouseenter", function () { highlight(i); });
+        suggestionsEl.appendChild(li);
+      });
+      suggestionsEl.hidden = false;
+      addInput.setAttribute("aria-expanded", "true");
+    }
+
+    function chooseSuggestion(i) {
+      const item = suggestItems[i];
+      if (!item) return;
+      addItem(item);
+      addInput.value = "";
+      hideSuggestions();
+      addInput.focus();
+    }
+
+    function fetchSuggestions() {
+      const query = addInput.value.trim();
+      if (query.length < 2) {
+        hideSuggestions();
+        return;
+      }
+      const token = ++requestToken;
+      MODES[currentMode]
+        .search(query, SUGGEST_LIMIT)
+        .then(function (items) {
+          if (token !== requestToken) return; // a newer keystroke superseded this
+          renderSuggestions(items);
+        })
+        .catch(function () {
+          if (token === requestToken) hideSuggestions();
+        });
+    }
+
+    addInput.addEventListener("input", function () {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(fetchSuggestions, 280);
+    });
+
+    addInput.addEventListener("keydown", function (e) {
+      if (suggestionsEl.hidden || !suggestItems.length) return;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        highlight((activeIndex + 1) % suggestItems.length);
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        highlight((activeIndex - 1 + suggestItems.length) % suggestItems.length);
+      } else if (e.key === "Enter" && activeIndex >= 0) {
+        e.preventDefault();
+        chooseSuggestion(activeIndex);
+      } else if (e.key === "Escape") {
+        hideSuggestions();
+      }
+    });
+
+    addInput.addEventListener("blur", function () {
+      // Delay so a suggestion mousedown can complete first.
+      setTimeout(hideSuggestions, 120);
+    });
+
+    // --- Add via the button: use the best (first) match ---
     addForm.addEventListener("submit", function (e) {
       e.preventDefault();
       const query = addInput.value.trim();
       if (!query) return;
 
+      hideSuggestions();
       addBtn.disabled = true;
       setStatus("Searching…");
 
       MODES[currentMode]
-        .lookup(query)
-        .then(function (item) {
-          if (!item) {
+        .search(query, 1)
+        .then(function (items) {
+          if (!items.length) {
             setStatus('No results found for "' + query + '".', true);
             return;
           }
-          const list = load(currentMode);
-          if (list.some(function (x) { return x.id === item.id; })) {
-            setStatus('"' + item.title + '" is already in your collection.', true);
-            return;
-          }
-          list.unshift(item);
-          save(currentMode, list);
+          addItem(items[0]);
           addInput.value = "";
-          setStatus("Added “" + item.title + "”.");
-          renderCollection();
         })
         .catch(function (err) {
           setStatus("Couldn't fetch details: " + err.message, true);

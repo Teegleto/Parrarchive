@@ -58,16 +58,29 @@
     </header>
 
     <section class="content">
-      <h2 id="collection-title" class="collection-title">Your Collection</h2>
+      <div class="collection-header">
+        <h2 id="collection-title" class="collection-title">Your Collection</h2>
+        <div class="view-toggle" role="group" aria-label="View mode">
+          <button id="view-grid" class="view-btn" data-view="grid" title="Grid view" aria-label="Grid view">▦</button>
+          <button id="view-list" class="view-btn" data-view="list" title="List view" aria-label="List view">☰</button>
+        </div>
+      </div>
 
       <form id="add-form" class="add-form" autocomplete="off">
-        <input
-          id="add-input"
-          class="add-input"
-          type="text"
-          placeholder="Type a vinyl title…"
-          aria-label="Title to add"
-        />
+        <div class="add-input-wrap">
+          <input
+            id="add-input"
+            class="add-input"
+            type="text"
+            placeholder="Type a vinyl title…"
+            aria-label="Title to add"
+            role="combobox"
+            aria-expanded="false"
+            aria-autocomplete="list"
+            aria-controls="suggestions"
+          />
+          <ul id="suggestions" class="suggestions" role="listbox" hidden></ul>
+        </div>
         <button type="submit" class="btn btn-primary" id="add-btn">Add</button>
       </form>
 
