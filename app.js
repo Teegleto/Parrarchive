@@ -331,7 +331,8 @@
     // Sync (cross-device) elements
     const syncBtn = document.getElementById("sync-btn");
     const syncModal = document.getElementById("sync-modal");
-    const syncUrlInput = document.getElementById("sync-url");
+    const syncKeyInput = document.getElementById("sync-key");
+    const syncBinInput = document.getElementById("sync-bin");
     const syncStatusEl = document.getElementById("sync-status");
     const syncSaveBtn = document.getElementById("sync-save");
     const syncNowBtn = document.getElementById("sync-now");
@@ -457,31 +458,53 @@
       if (cfg) localStorage.setItem(SYNC_KEY, JSON.stringify(cfg));
       else localStorage.removeItem(SYNC_KEY);
     }
-    function remoteUrl(cfg) {
-      let u = (cfg.url || "").trim().replace(/\/+$/, "");
-      if (!/\.json($|\?)/.test(u)) u += ".json";
-      return u;
+    const JSONBIN = "https://api.jsonbin.io/v3";
+    function jbHeaders(extra) {
+      const cfg = getSyncCfg() || {};
+      const h = { "Content-Type": "application/json", "X-Master-Key": cfg.key || "" };
+      if (extra) Object.keys(extra).forEach(function (k) { h[k] = extra[k]; });
+      return h;
     }
 
+    // Read the bin's latest record (X-Bin-Meta:false → just our document).
     function pullRemote() {
       const cfg = getSyncCfg();
-      if (!cfg) return Promise.resolve(null);
-      return fetch(remoteUrl(cfg), { cache: "no-store" }).then(function (r) {
+      if (!cfg || !cfg.binId) return Promise.resolve(null);
+      return fetch(JSONBIN + "/b/" + cfg.binId + "/latest", {
+        headers: jbHeaders({ "X-Bin-Meta": "false" }),
+        cache: "no-store",
+      }).then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
       });
     }
+    // Overwrite the bin with the whole collection.
     function pushRemote(doc) {
       const cfg = getSyncCfg();
-      if (!cfg) return Promise.resolve();
-      return fetch(remoteUrl(cfg), {
+      if (!cfg || !cfg.binId) return Promise.resolve();
+      return fetch(JSONBIN + "/b/" + cfg.binId, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: jbHeaders(),
         body: JSON.stringify(doc),
       }).then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
       });
+    }
+    // Create a fresh private bin and return its id.
+    function createBin(doc) {
+      return fetch(JSONBIN + "/b", {
+        method: "POST",
+        headers: jbHeaders({ "X-Bin-Private": "true", "X-Bin-Name": "Parrarchive" }),
+        body: JSON.stringify(doc),
+      })
+        .then(function (r) {
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          return r.json();
+        })
+        .then(function (res) {
+          return res && res.metadata && res.metadata.id;
+        });
     }
 
     function currentDoc() {
@@ -511,29 +534,34 @@
       save(mode, list);
       syncPush();
     }
+    function isConnected() {
+      const cfg = getSyncCfg();
+      return !!(cfg && cfg.binId);
+    }
     function syncPush() {
-      if (!getSyncCfg()) return;
+      if (!isConnected()) return;
       setSyncStatus("Saving…");
       pushChain = pushChain
         .then(function () { return pushRemote(currentDoc()); })
         .then(function () { setSyncStatus("Synced ✓", "ok"); })
         .catch(function (e) { setSyncStatus("Sync error: " + e.message, "error"); });
     }
-    // Pull the latest from the database (after any in-flight write completes).
+    // Pull the latest from the bin (after any in-flight write completes).
     function syncRefresh() {
-      if (!getSyncCfg()) return;
+      if (!isConnected()) return;
       pushChain = pushChain
         .then(function () { return pullRemote(); })
         .then(function (remote) { if (remote) applyDoc(remote); })
         .catch(function () {});
     }
     // First connection on a device: union local + remote so nothing is lost,
-    // then push the merged result back up.
+    // creating the bin if one doesn't exist yet, then push the merged result.
     function syncConnect() {
-      if (!getSyncCfg()) return;
+      const cfg = getSyncCfg();
+      if (!cfg) return;
       setSyncStatus("Connecting…");
       pushChain = pushChain
-        .then(function () { return pullRemote(); })
+        .then(function () { return cfg.binId ? pullRemote() : null; })
         .then(function (remote) {
           remote = remote || {};
           const merged = {
@@ -542,9 +570,22 @@
             updatedAt: Date.now(),
           };
           applyDoc(merged);
-          return pushRemote(merged);
+          if (cfg.binId) {
+            return pushRemote(merged).then(function () { return cfg.binId; });
+          }
+          return createBin(merged).then(function (id) {
+            if (!id) throw new Error("could not create bin");
+            setSyncCfg({ key: cfg.key, binId: id });
+            return id;
+          });
         })
-        .then(function () { setSyncStatus("Synced ✓", "ok"); })
+        .then(function (id) {
+          updateSyncUI();
+          setSyncStatus(
+            "Connected ✓ — Bin ID: " + id + " (use this on your other devices)",
+            "ok"
+          );
+        })
         .catch(function (e) { setSyncStatus("Sync error: " + e.message, "error"); });
     }
 
@@ -554,10 +595,11 @@
     }
     function updateSyncUI() {
       const cfg = getSyncCfg();
-      const on = !!cfg;
+      const on = isConnected();
       syncBtn.classList.toggle("connected", on);
       syncBtn.textContent = on ? "☁ Synced" : "☁ Sync";
-      syncUrlInput.value = cfg ? cfg.url : "";
+      syncKeyInput.value = cfg ? cfg.key || "" : "";
+      syncBinInput.value = cfg ? cfg.binId || "" : "";
       syncSaveBtn.textContent = on ? "Update & sync" : "Connect & sync";
       syncNowBtn.hidden = !on;
       syncDisconnectBtn.hidden = !on;
@@ -567,7 +609,7 @@
       updateSyncUI();
       if (!getSyncCfg()) setSyncStatus("");
       syncModal.hidden = false;
-      syncUrlInput.focus();
+      syncKeyInput.focus();
     }
     function closeSyncModal() { syncModal.hidden = true; }
 
@@ -577,12 +619,13 @@
       if (e.target === syncModal) closeSyncModal();
     });
     syncSaveBtn.addEventListener("click", function () {
-      const url = syncUrlInput.value.trim();
-      if (!/^https:\/\/.+/.test(url)) {
-        setSyncStatus("Enter a valid https:// database URL.", "error");
+      const key = syncKeyInput.value.trim();
+      const binId = syncBinInput.value.trim();
+      if (!key) {
+        setSyncStatus("Enter your JSONBin Master Key.", "error");
         return;
       }
-      setSyncCfg({ url: url });
+      setSyncCfg({ key: key, binId: binId || undefined });
       updateSyncUI();
       syncConnect();
     });
@@ -812,6 +855,6 @@
 
     // --- Initialise sync on startup ---
     updateSyncUI();
-    if (getSyncCfg()) syncConnect();
+    if (isConnected()) syncConnect();
   });
 })();

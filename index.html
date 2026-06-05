@@ -98,20 +98,31 @@
     <div class="modal-card">
       <h2 class="modal-title">Sync across devices</h2>
       <p class="modal-intro">
-        Store your collection in a free Firebase Realtime Database so it appears
-        on every device. Paste the same Database URL on each device.
+        Store your collection in a free <strong>JSONBin.io</strong> bin so it
+        appears on every device. Use the same Master Key and Bin ID everywhere.
       </p>
       <ol class="modal-steps">
-        <li>Create a free project at <strong>console.firebase.google.com</strong> and add a <strong>Realtime Database</strong>.</li>
-        <li>In the database <strong>Rules</strong> tab, set both <code>.read</code> and <code>.write</code> to <code>true</code>, then Publish.</li>
-        <li>Copy the database URL shown at the top of the Data tab and paste it below.</li>
+        <li>Create a free account at <strong>jsonbin.io</strong>.</li>
+        <li>Open <strong>API Keys</strong> and copy your <strong>Master Key</strong>.</li>
+        <li>Paste the key below and press <strong>Connect</strong> — a bin is
+          created automatically and its <strong>Bin ID</strong> is shown. Enter
+          that same Bin ID (and key) on your other devices.</li>
       </ol>
-      <label class="modal-label" for="sync-url">Realtime Database URL</label>
+      <label class="modal-label" for="sync-key">Master Key</label>
       <input
-        id="sync-url"
+        id="sync-key"
         class="gate-input"
-        type="url"
-        placeholder="https://your-project-default-rtdb.firebaseio.com/parrarchive"
+        type="password"
+        placeholder="$2a$10$…"
+        autocomplete="off"
+      />
+      <label class="modal-label" for="sync-bin">Bin ID <span class="modal-optional">(leave blank to create a new one)</span></label>
+      <input
+        id="sync-bin"
+        class="gate-input"
+        type="text"
+        placeholder="e.g. 66ab12cd34ef56gh78ij90kl"
+        autocomplete="off"
       />
       <p id="sync-status" class="sync-status" role="status"></p>
       <div class="modal-actions">
@@ -121,8 +132,9 @@
         <button id="sync-close" class="btn">Close</button>
       </div>
       <p class="modal-note">
-        Anyone with this URL can read and edit the data, so keep it private and
-        don't store anything sensitive. It is saved only in this browser.
+        Your Master Key is stored only in this browser and sent directly to
+        JSONBin. Anyone with the key and Bin ID can read and edit the data, so
+        keep them private and don't store anything sensitive.
       </p>
     </div>
   </div>
