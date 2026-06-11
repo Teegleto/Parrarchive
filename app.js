@@ -1,4 +1,4 @@
-/* Parrarchive — password-gated vinyl & book collection.
+/* Library Archive — password-gated vinyl & book collection.
    Pure client-side: works on GitHub Pages with no backend. */
 
 (function () {
@@ -495,7 +495,7 @@
     function createBin(doc) {
       return fetch(JSONBIN + "/b", {
         method: "POST",
-        headers: jbHeaders({ "X-Bin-Private": "true", "X-Bin-Name": "Parrarchive" }),
+        headers: jbHeaders({ "X-Bin-Private": "true", "X-Bin-Name": "Library Archive" }),
         body: JSON.stringify(doc),
       })
         .then(function (r) {

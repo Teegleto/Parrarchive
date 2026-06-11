@@ -1,4 +1,4 @@
-# Parrarchive
+# Library Archive
 
 A password-gated personal collection tracker for **vinyl records** and **books**,
 hosted entirely on GitHub Pages. No backend, no build step — just static
@@ -11,7 +11,7 @@ HTML/CSS/JavaScript.
    unlock is remembered for the browser tab via `sessionStorage`).
 2. **Pick a mode** — choose **🎵 Vinyl** or **📚 Books**.
 3. **Add items** — pick what to **search by**, type, and press *Add* (or pick a
-   suggestion). Parrarchive looks the item up automatically and adds a card with
+   suggestion). Library Archive looks the item up automatically and adds a card with
    its details:
    - **Vinyl** can be searched by **Album**, **Artist**, or **Song** (song
      searches return the track plus the album it appears on).
@@ -40,7 +40,7 @@ backend.
 
 1. Create a free account at **jsonbin.io**.
 2. Open **API Keys** and copy your **Master Key**.
-3. In Parrarchive, click **☁ Sync**, paste the key, and **Connect**. A private
+3. In Library Archive, click **☁ Sync**, paste the key, and **Connect**. A private
    bin is created automatically and its **Bin ID** is shown.
 4. On each other device, click **☁ Sync** and enter the **same Master Key and
    Bin ID**.

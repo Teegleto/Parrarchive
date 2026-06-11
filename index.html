@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Parrarchive</title>
+  <title>Library Archive</title>
   <link rel="stylesheet" href="styles.css" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎶</text></svg>" />
 </head>
@@ -12,7 +12,7 @@
   <!-- 1. Password gate: present in the HTML so it covers everything before JS runs -->
   <div id="gate" class="gate">
     <form id="gate-form" class="gate-card" autocomplete="off">
-      <h1 class="gate-title">Parrarchive</h1>
+      <h1 class="gate-title">Library Archive</h1>
       <p class="gate-sub">Enter the password to continue.</p>
       <input
         id="gate-input"
@@ -30,7 +30,7 @@
   <!-- 2. Chooser page — shown right after unlocking -->
   <div id="chooser" class="chooser" hidden>
     <div class="chooser-inner">
-      <h1 class="chooser-title">Parrarchive</h1>
+      <h1 class="chooser-title">Library Archive</h1>
       <p class="chooser-sub">What are you cataloguing?</p>
       <div class="chooser-options">
         <button class="choice-card" data-mode="vinyl">
@@ -50,7 +50,7 @@
   <!-- 3. Collection view, shown after a mode is chosen -->
   <main id="app" class="app" hidden>
     <header class="topbar">
-      <button id="home-btn" class="brand brand-btn" title="Back to chooser">Parrarchive</button>
+      <button id="home-btn" class="brand brand-btn" title="Back to chooser">Library Archive</button>
       <nav class="modes">
         <button id="mode-vinyl" class="mode-btn" data-mode="vinyl">🎵 Vinyl</button>
         <button id="mode-books" class="mode-btn" data-mode="books">📚 Books</button>
