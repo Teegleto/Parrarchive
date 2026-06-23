@@ -255,13 +255,14 @@
     return node;
   }
 
-  function renderCard(item, onRemove) {
+  function renderCard(item, callbacks) {
+    callbacks = callbacks || {};
     const card = el("div", "card");
 
     const remove = el("button", "card-remove", "✕");
     remove.title = "Remove";
     remove.setAttribute("aria-label", "Remove " + item.title);
-    remove.addEventListener("click", onRemove);
+    remove.addEventListener("click", callbacks.onRemove);
     card.appendChild(remove);
 
     const coverClass = "card-cover" + (item.coverClass ? " " + item.coverClass : "");
@@ -292,6 +293,78 @@
       list.appendChild(li);
     });
     body.appendChild(list);
+
+    // Vinyl songs can have other sides (records are often double-sided).
+    // `item.sides` only exists on song entries — albums already list their
+    // own tracklist via the "Tracks" meta field, so they skip this UI.
+    if (item.sides) {
+      if (item.sides.length) {
+        const sidesList = el("ul", "card-sides");
+        item.sides.forEach(function (side, i) {
+          const li = el("li", "card-side");
+          li.appendChild(el("span", "card-side-label", "Side " + String.fromCharCode(66 + i)));
+          const text = side.title + (side.subtitle ? " — " + side.subtitle : "");
+          li.appendChild(el("span", "card-side-title", text));
+          const rm = el("button", "card-side-remove", "✕");
+          rm.type = "button";
+          rm.title = "Remove this side";
+          rm.setAttribute("aria-label", "Remove side " + text);
+          rm.addEventListener("click", function () {
+            if (callbacks.onRemoveSide) callbacks.onRemoveSide(i);
+          });
+          li.appendChild(rm);
+          sidesList.appendChild(li);
+        });
+        body.appendChild(sidesList);
+      }
+
+      const addSideWrap = el("div", "card-add-side");
+      const addSideBtn = el("button", "card-add-side-btn", "+ Add another side");
+      addSideBtn.type = "button";
+      const sideForm = el("form", "card-side-form");
+      sideForm.hidden = true;
+      const sideInput = el("input", "card-side-input");
+      sideInput.type = "text";
+      sideInput.placeholder = "Song on the other side…";
+      sideInput.setAttribute("aria-label", "Song on the other side");
+      const sideSubmit = el("button", "btn btn-small", "Add");
+      sideSubmit.type = "submit";
+      const sideStatus = el("p", "card-side-status");
+      sideForm.appendChild(sideInput);
+      sideForm.appendChild(sideSubmit);
+      addSideWrap.appendChild(addSideBtn);
+      addSideWrap.appendChild(sideForm);
+      addSideWrap.appendChild(sideStatus);
+
+      addSideBtn.addEventListener("click", function () {
+        sideForm.hidden = !sideForm.hidden;
+        if (!sideForm.hidden) sideInput.focus();
+      });
+      sideForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        const query = sideInput.value.trim();
+        if (!query || !callbacks.onAddSide) return;
+        sideSubmit.disabled = true;
+        sideStatus.textContent = "Searching…";
+        sideStatus.className = "card-side-status";
+        callbacks
+          .onAddSide(query)
+          .then(function () {
+            sideInput.value = "";
+            sideForm.hidden = true;
+            sideStatus.textContent = "";
+          })
+          .catch(function (err) {
+            sideStatus.textContent = err.message;
+            sideStatus.className = "card-side-status error";
+          })
+          .finally(function () {
+            sideSubmit.disabled = false;
+          });
+      });
+
+      body.appendChild(addSideWrap);
+    }
 
     if (item.link) {
       const a = el("a", "card-link", "More info ↗");
@@ -404,13 +477,53 @@
       emptyEl.hidden = items.length > 0;
       items.forEach(function (item, index) {
         grid.appendChild(
-          renderCard(item, function () {
-            const list = load(currentMode);
-            list.splice(index, 1);
-            commit(currentMode, list);
-            renderCollection();
+          renderCard(item, {
+            onRemove: function () {
+              const list = load(currentMode);
+              list.splice(index, 1);
+              commit(currentMode, list);
+              renderCollection();
+            },
+            onAddSide: item.sides
+              ? function (query) { return addSideToItem(index, query); }
+              : null,
+            onRemoveSide: item.sides
+              ? function (sideIndex) {
+                  const list = load(currentMode);
+                  const target = list[index];
+                  if (!target || !target.sides) return;
+                  target.sides.splice(sideIndex, 1);
+                  commit(currentMode, list);
+                  renderCollection();
+                }
+              : null,
           })
         );
+      });
+    }
+
+    // --- Add another side (B-side, etc.) to an existing vinyl song entry ---
+    function addSideToItem(index, query) {
+      return MODES.vinyl.search(query, 1, "song").then(function (results) {
+        if (!results.length) throw new Error('No results found for "' + query + '".');
+        const found = results[0];
+        const list = load(currentMode);
+        const target = list[index];
+        if (!target) throw new Error("That item no longer exists.");
+        if (!target.sides) target.sides = [];
+        const isDuplicate =
+          target.id === found.id ||
+          target.sides.some(function (s) { return s.id === found.id; });
+        if (isDuplicate) throw new Error('"' + found.title + '" is already on this record.');
+        target.sides.push({
+          id: found.id,
+          title: found.title,
+          subtitle: found.subtitle,
+          meta: found.meta,
+          link: found.link,
+        });
+        commit(currentMode, list);
+        renderCollection();
       });
     }
 
@@ -433,6 +546,9 @@
           link: full.link,
           meta: full.meta,
         };
+        // Songs (not albums) can have other sides added later — records are
+        // often double-sided. mapDeezerTrack ids are prefixed "vt".
+        if (currentMode === "vinyl" && /^vt/.test(full.id)) stored.sides = [];
         const list = load(currentMode);
         if (list.some(function (x) { return x.id === stored.id; })) return;
         list.unshift(stored);

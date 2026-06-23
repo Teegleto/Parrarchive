@@ -26,6 +26,10 @@ HTML/CSS/JavaScript.
    - Results are re-ranked client-side, blending name-match quality with a
      popularity signal (Deezer's rank; Open Library edition counts) so the
      most popular match of a name appears at the top.
+   - **Double-sided records** — when you add a vinyl item by **Song**, its
+     card gets a **+ Add another side** button so you can attach the song on
+     the other side (or any further side) to the same card, instead of
+     cataloguing it as a separate record.
 4. Your collection is saved in the browser's `localStorage`, so it survives
    refreshes. Hover a card and click **✕** to remove an item.
 5. **Sync across devices (optional)** — click **☁ Sync** and connect a free
