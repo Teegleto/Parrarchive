@@ -294,11 +294,11 @@
     });
     body.appendChild(list);
 
-    // Vinyl songs can have other sides (records are often double-sided).
-    // `item.sides` only exists on song entries — albums already list their
-    // own tracklist via the "Tracks" meta field, so they skip this UI.
-    if (item.sides) {
-      if (item.sides.length) {
+    // Any vinyl record can be double-sided, so every vinyl card gets the
+    // "add another side" UI (the callback is only supplied in vinyl mode).
+    // `item.sides` holds the extra sides already saved on this record.
+    if (callbacks.onAddSide) {
+      if (item.sides && item.sides.length) {
         const sidesList = el("ul", "card-sides");
         item.sides.forEach(function (side, i) {
           const li = el("li", "card-side");
@@ -484,10 +484,10 @@
               commit(currentMode, list);
               renderCollection();
             },
-            onAddSide: item.sides
+            onAddSide: currentMode === "vinyl"
               ? function (query) { return addSideToItem(index, query); }
               : null,
-            onRemoveSide: item.sides
+            onRemoveSide: currentMode === "vinyl"
               ? function (sideIndex) {
                   const list = load(currentMode);
                   const target = list[index];
